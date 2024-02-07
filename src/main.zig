@@ -3,7 +3,7 @@ const Config = @import("Config.zig");
 const Tf = @import("Tf.zig");
 
 pub const std_options = struct {
-    pub const log_level = .info;
+    pub const log_level = .debug;
 };
 
 const BackendState = enum { running, interrupted };
@@ -15,15 +15,14 @@ var backend_state = BackendState.running;
 pub fn main() !void {
     std.log.info("starting", .{});
 
-    try Tf.init();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const gpallocator = gpa.allocator();
+    try Tf.init(gpallocator);
+    defer Tf.deinit();
     const cfg = try Config.init(gpallocator);
 
-    const address = try std.net.Address.resolveIp(cfg.host, try std.fmt.parseUnsigned(u16, cfg.port, 10));
     server = std.http.Server.init(.{ .reuse_address = true, .reuse_port = false });
     defer server.deinit();
 
@@ -36,12 +35,12 @@ pub fn main() !void {
         }, null);
     }
 
-    threads = try gpallocator.alloc(std.Thread, if (cfg.pool_size) |size| try std.fmt.parseUnsigned(u32, size, 10) else try std.Thread.getCpuCount());
+    threads = try gpallocator.alloc(std.Thread, cfg.pool_size);
     defer for (threads) |thread| thread.join();
     std.log.info("allocated {} threads", .{threads.len});
 
-    try server.listen(address);
-    std.log.info("server.listen on address {s}:{s}", .{ cfg.host, cfg.port });
+    try server.listen(cfg.address);
+    std.log.info("server.listen on address {}", .{cfg.address});
 
     for (0..threads.len) |i| threads[i] = try std.Thread.spawn(
         .{},
@@ -79,12 +78,11 @@ fn handleServer(allocator: std.mem.Allocator, i: usize) void {
             };
             std.log.info("{}: {s}", .{ res.request.method, res.request.target });
 
-            Tf.handle(allocator, res) catch |err| {
+            Tf.handle(res) catch |err| {
                 std.log.err("Tf.handle failed with {}", .{err});
                 sendErr(res, err) catch |cerr| {
                     std.log.err("sendErr failed with {} {?}", .{ cerr, @errorReturnTrace() });
                 };
-                return;
             };
         }
     }
@@ -130,6 +128,7 @@ fn handleSig(sig: c_int) callconv(.C) void {
     backend_state = .interrupted;
     // for (threads) |thread| thread.join(); // accept blocks the thread so backend_state is never checked
     server.deinit();
+    Tf.deinit();
     std.process.exit(1);
 }
 

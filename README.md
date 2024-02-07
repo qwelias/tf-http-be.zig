@@ -1,11 +1,15 @@
 ## Terraform HTTP backend
 Zero dependency Zig implementation of a server for [terraform http backend client](https://github.com/hashicorp/terraform/blob/main/internal/backend/remote-state/http/client.go)
 
-__WARNING__: Zig is still not stable, as well as the provided software.
+__WARNING__: Zig is still not stable.
 It is highly advised to host it behind a proper reverse proxy (e.g. nginx) capable of encryption/auth/timeouts/ratelimits/etc
 
 ### Build
 See [CI](.github/workflows/ci.yml)
+
+### Integration tests
+- Load tests across multiple states are included in [test/run.sh](test/run.sh) and are part of [CI](.github/workflows/ci.yml)
+- TODO lock test for same state
 
 ### Usage
 Server `PORT` (`3030`), `HOST` (`0.0.0.0`), and thread `POOL_SIZE` (CPU count) can be changed using env variables

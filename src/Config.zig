@@ -1,23 +1,18 @@
 const std = @import("std");
 
-const Config = @This();
-host: []const u8,
-port: []const u8,
-pool_size: ?[]const u8,
+address: std.net.Address,
+pool_size: usize,
 
-pub fn init(alocator: std.mem.Allocator) !Config {
+const Config = @This();
+pub fn init(allocator: std.mem.Allocator) !Config {
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
+
+    const host: []const u8 = if (env_map.get("HOST")) |str| str else "0.0.0.0";
+    const port: []const u8 = if (env_map.get("PORT")) |str| str else "3030";
+
     return .{
-        .host = std.process.getEnvVarOwned(alocator, "HOST") catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => "0.0.0.0",
-            else => return err,
-        },
-        .port = std.process.getEnvVarOwned(alocator, "PORT") catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => "3030",
-            else => return err,
-        },
-        .pool_size = std.process.getEnvVarOwned(alocator, "POOL_SIZE") catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => null,
-            else => return err,
-        },
+        .address = try std.net.Address.resolveIp(host, try std.fmt.parseUnsigned(u16, port, 10)),
+        .pool_size = if (env_map.get("POOL_SIZE")) |str| try std.fmt.parseUnsigned(usize, str, 10) else try std.Thread.getCpuCount(),
     };
 }

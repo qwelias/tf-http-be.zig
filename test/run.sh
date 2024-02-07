@@ -58,7 +58,7 @@ trap 'pkill tf-http-be' ERR
 (
     cd "${BASEDIR}"
     rm -rf */
-    for i in $(seq 32); do
+    for i in $(seq ${TEST_SIZE:=32}); do
         test_name "name_${i}" &
     done
 
@@ -68,7 +68,6 @@ trap 'pkill tf-http-be' ERR
         jobs
         wait
     done
-    rm -rf */
 )
 END_MEM=$(pmap $PID | grep total | awk '{print $2}')
 echo test: MEM CHANGE $START_MEM '->' $END_MEM

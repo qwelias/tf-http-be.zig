@@ -2,6 +2,7 @@ const std = @import("std");
 const util = @import("util.zig");
 
 var state_dir: std.fs.Dir = undefined;
+var mxs: util.MutexStore = undefined;
 const MAX_TARGET_LEN: usize = 128;
 const BUF_SIZE: usize = 4096;
 const EMPTY_CONTENT_MD5 = "1B2M2Y8AsgTpgAmY7PhCfg==";
@@ -30,19 +31,24 @@ const ExtraMethod = struct {
     pub const LOCK = @as(std.http.Method, @enumFromInt(std.http.Method.parse("LOCK")));
 };
 
-pub fn init() !void {
+pub fn init(allocator: std.mem.Allocator) !void {
+    mxs = util.MutexStore.init(allocator);
     state_dir = try std.fs.cwd().makeOpenPath("state", .{});
 }
+pub fn deinit() void {
+    mxs.deinit();
+    state_dir.close();
+}
 
-pub fn handle(allocator: std.mem.Allocator, response: std.http.Server.Response) !void {
+pub fn handle(response: std.http.Server.Response) !void {
     const uri = try std.Uri.parseWithoutScheme(response.request.target);
     try checkTarget(uri.path);
     try switch (response.request.method) {
-        std.http.Method.GET => handleGet(allocator, response, uri),
-        std.http.Method.POST => handlePost(allocator, response, uri),
-        std.http.Method.DELETE => handleDelete(allocator, response, uri),
-        ExtraMethod.LOCK => handleLock(allocator, response, uri),
-        ExtraMethod.UNLOCK => handleUnlock(allocator, response, uri),
+        std.http.Method.GET => handleGet(response, uri),
+        std.http.Method.POST => handlePost(response, uri),
+        std.http.Method.DELETE => handleDelete(response, uri),
+        ExtraMethod.LOCK => handleLock(response, uri),
+        ExtraMethod.UNLOCK => handleUnlock(response, uri),
         else => return HandlerError.UnsupportedMethod,
     };
 }
@@ -56,9 +62,9 @@ fn checkTarget(target: []const u8) HandlerError!void {
     }
 }
 
-fn handleGet(allocator: std.mem.Allocator, response: std.http.Server.Response, uri: std.Uri) !void {
+fn handleGet(response: std.http.Server.Response, uri: std.Uri) !void {
     var res = response;
-    var sm = try getMutexFor(allocator, uri.path);
+    var sm = try mxs.get(uri.path);
     sm.lock();
     defer sm.unlock();
 
@@ -70,6 +76,7 @@ fn handleGet(allocator: std.mem.Allocator, response: std.http.Server.Response, u
     const state_name = blk: {
         const counter_file = target_dir.openFile(Files.counter, Files.readOpts) catch return HandlerError.NotFound;
         defer counter_file.close();
+
         const amt = try counter_file.readAll(&buf);
         if (amt == 0) return HandlerError.NotFound;
         if (amt > 16) return HandlerError.MalformedState;
@@ -93,9 +100,9 @@ fn handleGet(allocator: std.mem.Allocator, response: std.http.Server.Response, u
     try res.finish();
 }
 
-fn handleUnlock(allocator: std.mem.Allocator, response: std.http.Server.Response, uri: std.Uri) !void {
+fn handleUnlock(response: std.http.Server.Response, uri: std.Uri) !void {
     var res = response;
-    var sm = try getMutexFor(allocator, uri.path);
+    var sm = try mxs.get(uri.path);
     sm.lock();
     defer sm.unlock();
 
@@ -126,9 +133,9 @@ fn handleUnlock(allocator: std.mem.Allocator, response: std.http.Server.Response
     try res.finish();
 }
 
-fn handleLock(allocator: std.mem.Allocator, response: std.http.Server.Response, uri: std.Uri) !void {
+fn handleLock(response: std.http.Server.Response, uri: std.Uri) !void {
     var res = response;
-    var sm = try getMutexFor(allocator, uri.path);
+    var sm = try mxs.get(uri.path);
     sm.lock();
     defer sm.unlock();
 
@@ -164,9 +171,9 @@ fn handleLock(allocator: std.mem.Allocator, response: std.http.Server.Response, 
     try res.finish();
 }
 
-fn handleDelete(allocator: std.mem.Allocator, response: std.http.Server.Response, uri: std.Uri) !void {
+fn handleDelete(response: std.http.Server.Response, uri: std.Uri) !void {
     var res = response;
-    var sm = try getMutexFor(allocator, uri.path);
+    var sm = try mxs.get(uri.path);
     sm.lock();
     defer sm.unlock();
 
@@ -182,9 +189,9 @@ fn handleDelete(allocator: std.mem.Allocator, response: std.http.Server.Response
     }
 }
 
-fn handlePost(allocator: std.mem.Allocator, response: std.http.Server.Response, uri: std.Uri) !void {
+fn handlePost(response: std.http.Server.Response, uri: std.Uri) !void {
     var res = response;
-    var sm = try getMutexFor(allocator, uri.path);
+    var sm = try mxs.get(uri.path);
     sm.lock();
     defer sm.unlock();
 
@@ -232,34 +239,6 @@ fn handlePost(allocator: std.mem.Allocator, response: std.http.Server.Response, 
 
     try res.send();
     try res.finish();
-}
-
-// TODO should probably use LRU cache to avoid infinitely growing the hashmap
-var sm_map = std.StringHashMapUnmanaged(std.Thread.Mutex){};
-var m = std.Thread.Mutex{};
-fn getMutexFor(allocator: std.mem.Allocator, key: []const u8) !std.Thread.Mutex {
-    if (sm_map.get(key)) |sm| {
-        std.log.debug("found mutex for {s}", .{key});
-        return sm;
-    } else {
-        std.log.debug("missed mutex for {s}", .{key});
-
-        m.lock();
-        defer m.unlock();
-        const e = try sm_map.getOrPut(allocator, key);
-        if (!e.found_existing) {
-            std.log.debug("creating mutex for {s}, current map size {}", .{ key, sm_map.size });
-
-            // copy key because outer may get freed
-            const key_copy = try allocator.alloc(u8, key.len);
-            @memcpy(key_copy, key);
-            e.key_ptr.* = key_copy;
-
-            e.value_ptr.* = std.Thread.Mutex{};
-        }
-
-        return e.value_ptr.*;
-    }
 }
 
 test "Tf" {
