@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.12.0-dev.2284+9b714e019
 
       - uses: actions/checkout@v2
 
