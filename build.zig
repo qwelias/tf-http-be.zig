@@ -12,6 +12,10 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    const build_options = b.addOptions();
+    build_options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log-level", "The log level, defaults to info") orelse .info);
+    exe.root_module.addOptions("build_options", build_options);
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
