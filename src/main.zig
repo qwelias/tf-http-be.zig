@@ -5,6 +5,7 @@ const Tf = @import("Tf.zig");
 pub const std_options = struct {
     pub const log_level = .debug;
 };
+const term_signals_as_mask = [_]u32{ 1, 2, 3, 15 } ++ ([_]u32{0} ** 28);
 
 const BackendState = enum { running, interrupted };
 
@@ -26,10 +27,9 @@ pub fn main() !void {
     server = std.http.Server.init(.{ .reuse_address = true, .reuse_port = false });
     defer server.deinit();
 
-    const term_signals = [_]u6{ 1, 2, 3, 15 };
-    inline for (term_signals) |sig| {
-        try std.os.sigaction(sig, &std.os.Sigaction{
-            .mask = std.os.empty_sigset, // TODO use term_signals
+    for (std.mem.sliceTo(&term_signals_as_mask, 0)) |sig| {
+        try std.os.sigaction(@intCast(sig), &std.os.Sigaction{
+            .mask = term_signals_as_mask,
             .flags = 0,
             .handler = .{ .handler = handleSig },
         }, null);
