@@ -3,10 +3,10 @@ const build_options = @import("build_options");
 const Config = @import("Config.zig");
 const Tf = @import("Tf.zig");
 
-pub const std_options = struct {
-    pub const log_level = switch (build_options.log_level) {
+pub const std_options = std.Options{
+    .log_level = switch (build_options.log_level) {
         inline else => |tag| @field(std.log.Level, @tagName(tag)),
-    };
+    },
 };
 const term_signals_as_mask = [_]u32{ 1, 2, 3, 15 } ++ ([_]u32{0} ** 28);
 
